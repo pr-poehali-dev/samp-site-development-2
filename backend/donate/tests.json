@@ -1,0 +1,38 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS request for CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedHeaders": {
+        "Access-Control-Allow-Origin": "*"
+      }
+    },
+    {
+      "name": "POST donate request with valid data",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "nickname": "TestPlayer",
+        "amount": 100
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "payment_url": "string",
+        "payment_id": "string"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "POST with invalid amount",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "nickname": "TestPlayer",
+        "amount": -50
+      },
+      "expectedStatus": 422
+    }
+  ]
+}

@@ -17,7 +17,7 @@ class ConfirmRequest(BaseModel):
     payment_id: str = Field(..., min_length=1)
 
 
-def send_telegram_message_with_buttons(bot_token: str, chat_id: str, message: str, payment_id: str) -> bool:
+def send_telegram_message_with_buttons(bot_token: str, chat_id: str, message: str, payment_id: str) -> Dict[str, Any]:
     '''Отправка сообщения в Telegram с inline кнопками'''
     url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
     data = json.dumps({
@@ -46,12 +46,19 @@ def send_telegram_message_with_buttons(bot_token: str, chat_id: str, message: st
     
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
-            return response.status == 200
-    except urllib.error.URLError:
-        return False
+            result = json.loads(response.read().decode('utf-8'))
+            print(f'Telegram API response: {result}')
+            return {'success': True, 'data': result}
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        print(f'Telegram API error: {error_body}')
+        return {'success': False, 'error': error_body}
+    except Exception as e:
+        print(f'Telegram send error: {str(e)}')
+        return {'success': False, 'error': str(e)}
 
 
-def send_telegram_message(bot_token: str, chat_id: str, message: str) -> bool:
+def send_telegram_message(bot_token: str, chat_id: str, message: str) -> Dict[str, Any]:
     '''Отправка простого сообщения в Telegram'''
     url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
     data = json.dumps({
@@ -68,9 +75,16 @@ def send_telegram_message(bot_token: str, chat_id: str, message: str) -> bool:
     
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
-            return response.status == 200
-    except urllib.error.URLError:
-        return False
+            result = json.loads(response.read().decode('utf-8'))
+            print(f'Telegram API response: {result}')
+            return {'success': True, 'data': result}
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        print(f'Telegram API error: {error_body}')
+        return {'success': False, 'error': error_body}
+    except Exception as e:
+        print(f'Telegram send error: {str(e)}')
+        return {'success': False, 'error': str(e)}
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -182,6 +196,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     payment_id = f'{donate_req.nickname}_{donate_req.amount}_{context.request_id[:8]}'
     
+    print(f'Processing donate: nickname={donate_req.nickname}, amount={donate_req.amount}')
+    print(f'Bot token length: {len(bot_token)}, Chat ID: {chat_id}')
+    
     telegram_message = (
         f'💰 <b>Новый донат!</b>\n\n'
         f'Игрок: <code>{donate_req.nickname}</code>\n'
@@ -190,7 +207,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         f'Реквизиты карты: <code>2200 7020 5523 2552</code>'
     )
     
-    send_telegram_message_with_buttons(bot_token, chat_id, telegram_message, payment_id)
+    telegram_result = send_telegram_message_with_buttons(bot_token, chat_id, telegram_message, payment_id)
+    print(f'Telegram send result: {telegram_result}')
     
     return {
         'statusCode': 200,
@@ -200,7 +218,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         },
         'body': json.dumps({
             'card_number': '2200 7020 5523 2552',
-            'payment_id': payment_id
+            'payment_id': payment_id,
+            'telegram_sent': telegram_result.get('success', False)
         }),
         'isBase64Encoded': False
     }

@@ -9,9 +9,10 @@ import { useToast } from '@/hooks/use-toast';
 export default function Index() {
   const [nickname, setNickname] = useState('');
   const [donateAmount, setDonateAmount] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!nickname.trim()) {
@@ -32,13 +33,46 @@ export default function Index() {
       return;
     }
 
-    toast({
-      title: "Успешно!",
-      description: `Донат ${donateAmount} руб. от игрока ${nickname}`,
-    });
+    setIsLoading(true);
 
-    setNickname('');
-    setDonateAmount('');
+    try {
+      const response = await fetch('https://functions.poehali.dev/9f161d17-3a34-4f4a-ac1d-33ab143b8e21', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nickname: nickname,
+          amount: Number(donateAmount),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        toast({
+          title: "Ошибка",
+          description: data.error || "Не удалось создать платеж",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      toast({
+        title: "Успешно!",
+        description: "Перенаправляем на страницу оплаты...",
+      });
+
+      window.location.href = data.payment_url;
+    } catch (error) {
+      toast({
+        title: "Ошибка",
+        description: "Проблема с соединением. Попробуйте позже.",
+        variant: "destructive",
+      });
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -106,11 +140,21 @@ export default function Index() {
 
               <Button 
                 type="submit" 
-                className="w-full h-12 text-lg font-medium bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 shadow-lg hover:shadow-xl transition-all duration-300 animate-fade-in"
+                disabled={isLoading}
+                className="w-full h-12 text-lg font-medium bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 shadow-lg hover:shadow-xl transition-all duration-300 animate-fade-in disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ animationDelay: '0.3s' }}
               >
-                <Icon name="CreditCard" size={20} className="mr-2" />
-                Отправить донат
+                {isLoading ? (
+                  <>
+                    <Icon name="Loader2" size={20} className="mr-2 animate-spin" />
+                    Создаем платеж...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="CreditCard" size={20} className="mr-2" />
+                    Отправить донат
+                  </>
+                )}
               </Button>
             </form>
 

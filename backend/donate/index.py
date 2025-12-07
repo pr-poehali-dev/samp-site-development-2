@@ -2,7 +2,8 @@ import json
 import os
 import urllib.request
 import urllib.error
-from typing import Dict, Any
+import pymysql
+from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 
 
@@ -87,6 +88,56 @@ def send_telegram_message(bot_token: str, chat_id: str, message: str) -> Dict[st
         return {'success': False, 'error': str(e)}
 
 
+def add_donate_to_samp_db(nickname: str, amount: int) -> Dict[str, Any]:
+    '''Добавление донат рублей игроку в базу данных SAMP сервера'''
+    host = os.environ.get('SAMP_DB_HOST', '')
+    port = int(os.environ.get('SAMP_DB_PORT', '3306'))
+    user = os.environ.get('SAMP_DB_USER', '')
+    password = os.environ.get('SAMP_DB_PASSWORD', '')
+    database = os.environ.get('SAMP_DB_NAME', '')
+    table = os.environ.get('SAMP_DB_TABLE', 'players')
+    column_name = 'Name'
+    column_donate = os.environ.get('SAMP_DB_COLUMN_DONATE', 'Donate')
+    
+    if not all([host, user, password, database]):
+        print('Missing SAMP database configuration')
+        return {'success': False, 'error': 'Database configuration missing'}
+    
+    connection: Optional[pymysql.connections.Connection] = None
+    
+    try:
+        connection = pymysql.connect(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            connect_timeout=10
+        )
+        
+        with connection.cursor() as cursor:
+            sql = f"UPDATE `{table}` SET `{column_donate}` = `{column_donate}` + %s WHERE `{column_name}` = %s"
+            rows_affected = cursor.execute(sql, (amount, nickname))
+            connection.commit()
+            
+            if rows_affected == 0:
+                print(f'Player {nickname} not found in database')
+                return {'success': False, 'error': 'Player not found'}
+            
+            print(f'Successfully added {amount} donate rubles to {nickname}')
+            return {'success': True, 'rows_affected': rows_affected}
+            
+    except pymysql.MySQLError as e:
+        print(f'MySQL error: {str(e)}')
+        return {'success': False, 'error': f'Database error: {str(e)}'}
+    except Exception as e:
+        print(f'Error adding donate: {str(e)}')
+        return {'success': False, 'error': str(e)}
+    finally:
+        if connection:
+            connection.close()
+
+
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     '''
     Отправка реквизитов карты и уведомлений в Telegram
@@ -162,12 +213,25 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'isBase64Encoded': False
             }
         
-        telegram_message = (
-            f'✅ <b>Пользователь подтвердил оплату!</b>\n\n'
-            f'Игрок: <code>{confirm_req.nickname}</code>\n'
-            f'Сумма: <b>{confirm_req.amount} ₽</b>\n'
-            f'ID платежа: <code>{confirm_req.payment_id}</code>'
-        )
+        db_result = add_donate_to_samp_db(confirm_req.nickname, confirm_req.amount)
+        
+        if db_result.get('success'):
+            telegram_message = (
+                f'✅ <b>Пользователь подтвердил оплату!</b>\n\n'
+                f'Игрок: <code>{confirm_req.nickname}</code>\n'
+                f'Сумма: <b>{confirm_req.amount} ₽</b>\n'
+                f'ID платежа: <code>{confirm_req.payment_id}</code>\n\n'
+                f'💎 Донат рубли успешно добавлены в базу данных!'
+            )
+        else:
+            telegram_message = (
+                f'⚠️ <b>Пользователь подтвердил оплату, но возникла проблема!</b>\n\n'
+                f'Игрок: <code>{confirm_req.nickname}</code>\n'
+                f'Сумма: <b>{confirm_req.amount} ₽</b>\n'
+                f'ID платежа: <code>{confirm_req.payment_id}</code>\n\n'
+                f'❌ Ошибка базы данных: {db_result.get("error", "Unknown error")}\n'
+                f'Проверьте настройки подключения к MySQL!'
+            )
         
         send_telegram_message(bot_token, chat_id, telegram_message)
         
@@ -177,7 +241,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*'
             },
-            'body': json.dumps({'success': True}),
+            'body': json.dumps({
+                'success': True,
+                'db_success': db_result.get('success', False),
+                'db_error': db_result.get('error')
+            }),
             'isBase64Encoded': False
         }
     
